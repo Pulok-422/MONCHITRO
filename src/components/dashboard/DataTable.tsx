@@ -1,3 +1,4 @@
+import { downloadCsv, toCsv } from '@/lib/csvExport';
 import { useState, useMemo } from 'react';
 import type { DistrictPop, Facility } from '@/types/dashboard';
 import { Input } from '@/components/ui/input';
@@ -12,29 +13,13 @@ interface DataTableProps {
 
 const PAGE_SIZE = 15;
 
-function exportCSV(data: Record<string, any>[], filename: string) {
-  if (data.length === 0) return;
-
-  const keys = Object.keys(data[0]);
-  const csv = [
-    keys.join(','),
-    ...data.map((row) =>
-      keys.map((k) => `"${String(row[k] ?? '').replace(/"/g, '""')}"`).join(',')
-    ),
-  ].join('\n');
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-
-  a.href = url;
-  a.download = filename;
-  a.click();
-
-  URL.revokeObjectURL(url);
+function exportCSV(data: (Facility | DistrictPop)[], filename: string) {
+  if (!data.length) return;
+  const keys = [...new Set(data.flatMap(row => Object.keys(row)))];
+  downloadCsv(filename, toCsv(data, keys.map(key => ({ key }))));
 }
 
-function formatCell(value: any, key: string): string {
+function formatCell(value: unknown, key: string): string {
   if (value == null || value === '') return '-';
   if (typeof value !== 'number') return String(value);
   if (!Number.isFinite(value)) return '-';
@@ -75,8 +60,8 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
 
     if (sortKey) {
       list = [...list].sort((a, b) => {
-        const av = (a as any)[sortKey] ?? '';
-        const bv = (b as any)[sortKey] ?? '';
+        const av = (a as unknown as Record<string, unknown>)[sortKey] ?? '';
+        const bv = (b as unknown as Record<string, unknown>)[sortKey] ?? '';
         const cmp =
           typeof av === 'number' && typeof bv === 'number'
             ? av - bv
@@ -102,8 +87,8 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
 
     if (sortKey) {
       list = [...list].sort((a, b) => {
-        const av = (a as any)[sortKey] ?? '';
-        const bv = (b as any)[sortKey] ?? '';
+        const av = (a as unknown as Record<string, unknown>)[sortKey] ?? '';
+        const bv = (b as unknown as Record<string, unknown>)[sortKey] ?? '';
         const cmp =
           typeof av === 'number' && typeof bv === 'number'
             ? av - bv
@@ -224,7 +209,7 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
               size="sm"
               className="h-8 text-xs"
               disabled={filteredFacilities.length === 0}
-              onClick={() => exportCSV(filteredFacilities as any[], 'facilities.csv')}
+              onClick={() => exportCSV(filteredFacilities, 'facilities.csv')}
               aria-label="Export filtered facilities as CSV"
             >
               <Download className="mr-1 h-3 w-3" aria-hidden="true" />
@@ -236,7 +221,7 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
               size="sm"
               className="h-8 text-xs"
               disabled={filteredDistricts.length === 0}
-              onClick={() => exportCSV(filteredDistricts as any[], 'districts.csv')}
+              onClick={() => exportCSV(filteredDistricts, 'districts.csv')}
               aria-label="Export filtered districts as CSV"
             >
               <Download className="mr-1 h-3 w-3" aria-hidden="true" />
@@ -296,7 +281,7 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
               </tr>
             )}
 
-            {pageData.map((row: any, i: number) => (
+            {pageData.map((row, i: number) => (
               <tr
                 key={`${tab}-${safePage}-${i}`}
                 onClick={() => tab === 'facilities' && onFacilityClick?.(row)}
@@ -308,9 +293,9 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
                   <td
                     key={col.key}
                     className="max-w-[220px] truncate whitespace-nowrap px-3 py-2"
-                    title={String(row[col.key] ?? '')}
+                    title={String((row as unknown as Record<string, unknown>)[col.key] ?? '')}
                   >
-                    {formatCell(row[col.key], col.key)}
+                    {formatCell((row as unknown as Record<string, unknown>)[col.key], col.key)}
                   </td>
                 ))}
               </tr>
@@ -334,7 +319,7 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
             variant="ghost"
             size="sm"
             disabled={safePage === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            onClick={() => setPage(Math.max(0, safePage - 1))}
             className="h-7 w-7 p-0"
             aria-label="Previous page"
           >
@@ -345,7 +330,7 @@ export default function DataTable({ districts, facilities, onFacilityClick }: Da
             variant="ghost"
             size="sm"
             disabled={safePage >= totalPages - 1}
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}
             className="h-7 w-7 p-0"
             aria-label="Next page"
           >
