@@ -1,15 +1,15 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useDataLoader } from '@/hooks/useDataLoader';
 import { useFilters } from '@/hooks/useFilters';
 import type { TabView } from '@/types/dashboard';
 import KPICards from '@/components/dashboard/KPICards';
-import DistrictMap from '@/components/dashboard/DistrictMap';
+const DistrictMap = lazy(() => import('@/components/dashboard/DistrictMap'));
 import FilterPanel from '@/components/dashboard/FilterPanel';
-import InsightsTab from '@/components/dashboard/InsightsTab';
+const InsightsTab = lazy(() => import('@/components/dashboard/InsightsTab'));
 import DataTable from '@/components/dashboard/DataTable';
 import DistrictSummaryCards from '@/components/dashboard/DistrictSummaryCards';
-import ReportTab from '@/components/dashboard/ReportTab';
+const ReportTab = lazy(() => import('@/components/dashboard/ReportTab'));
 import ActiveFilterChips from '@/components/dashboard/ActiveFilterChips';
 import { AlertTriangle, RefreshCw, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -63,15 +63,18 @@ export default function Index() {
     setSelectedDistrict,
     activeDistricts,
     activeFacilities,
+    nationalDistricts,
     filterOptions,
   } = useFilters(districts, facilities);
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get('tab') as TabView) || 'map';
-
-  const [activeTab, setActiveTab] = useState<TabView>(
-    VALID_TABS.includes(initialTab) ? initialTab : 'map'
-  );
+  const requestedTab = searchParams.get('tab') as TabView;
+  const activeTab: TabView = VALID_TABS.includes(requestedTab) ? requestedTab : 'map';
+  const setActiveTab = (tab: TabView) => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (tab === 'map') next.delete('tab'); else next.set('tab', tab);
+    return next;
+  }, { replace: true });
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
@@ -88,19 +91,6 @@ export default function Index() {
 
     return () => window.removeEventListener('resize', check);
   }, []);
-
-  useEffect(() => {
-    const next = new URLSearchParams(searchParams);
-
-    if (activeTab === 'map') {
-      next.delete('tab');
-    } else {
-      next.set('tab', activeTab);
-    }
-
-    setSearchParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
 
   const districtNameLookup = useMemo(() => {
     const m: Record<string, string> = {};
@@ -194,7 +184,7 @@ export default function Index() {
             aria-label="Dashboard filters"
             className={`bg-card border-r border-border transition-all duration-300 flex-shrink-0 ${
               isMobile
-                ? `fixed top-[52px] bottom-0 left-0 z-50 w-[85%] max-w-[320px] shadow-xl ${
+                ? `fixed top-[var(--dashboard-header-height,64px)] bottom-0 left-0 z-50 w-[85%] max-w-[320px] shadow-xl ${
                     sidebarOpen ? 'translate-x-0' : '-translate-x-full'
                   }`
                 : sidebarOpen
@@ -204,7 +194,7 @@ export default function Index() {
           >
             <div
               className={`${
-                isMobile ? 'h-full' : 'h-[calc(100vh-52px)] sticky top-[52px]'
+                isMobile ? 'h-full' : 'h-[calc(100vh-var(--dashboard-header-height,64px))] sticky top-[var(--dashboard-header-height,64px)]'
               } overflow-hidden`}
             >
               <FilterPanel
@@ -223,6 +213,7 @@ export default function Index() {
                     filters={filters}
                     selectedDistrict={selectedDistrict}
                     districtNameLookup={districtNameLookup}
+                    divisionNameLookup={Object.fromEntries(filterOptions.divisions.map(d => [d.code, d.name]))}
                     updateFilter={updateFilter}
                     setSelectedDistrict={setSelectedDistrict}
                     resetFilters={resetFilters}
@@ -243,8 +234,9 @@ export default function Index() {
               <DistrictSummaryCards districts={activeDistricts} />
             )}
 
+            <Suspense fallback={<div className="dashboard-panel p-6 text-sm text-muted-foreground">Loading dashboard view…</div>}>
             {activeTab === 'map' &&
-              (activeDistricts.length === 0 || activeFacilities.length === 0 ? (
+              (activeDistricts.length === 0 ? (
                 <NoDataState
                   resetFilters={resetFilters}
                   message="No districts or facilities match the current filter selection. Reset filters or broaden the geography/facility criteria."
@@ -268,16 +260,17 @@ export default function Index() {
                   message="No district-level denominator data match the current filters. Adjust filters to see insights."
                 />
               ) : (
-                <InsightsTab districts={activeDistricts} facilities={activeFacilities} />
+                <InsightsTab districts={activeDistricts} facilities={activeFacilities} nationalDistricts={nationalDistricts} />
               ))}
 
             {activeTab === 'table' && (
               <DataTable districts={activeDistricts} facilities={activeFacilities} />
             )}
+            </Suspense>
           </div>
 
           {activeTab === 'report' && (
-            <ReportTab districts={districts} facilities={facilities} />
+            <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading report builder…</div>}><ReportTab districts={districts} facilities={facilities} /></Suspense>
           )}
         </main>
       </div>
