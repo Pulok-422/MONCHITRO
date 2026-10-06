@@ -27,8 +27,8 @@ export default function DistrictSummaryCards({ districts }: Props) {
     return [
       { label: 'Highest Population', district: highPop?.DIS_NAME, value: `${(highPop?.Population / 1000000).toFixed(1)}M`, icon: Users, color: 'text-primary' },
       { label: 'Highest Poverty', district: highPoverty?.DIS_NAME, value: highPoverty?.["Poverty Index"], icon: TrendingUp, color: 'text-destructive' },
-      { label: 'Lowest Coverage', district: lowCoverage?.DIS_NAME, value: `${(lowCoverage?.facilitiesPer100k || 0).toFixed(2)}/100K`, icon: TrendingDown, color: 'text-destructive' },
-      { label: 'Best Served', district: bestServed?.DIS_NAME, value: `${(bestServed?.facilitiesPer100k || 0).toFixed(2)}/100K`, icon: MapPin, color: 'text-accent' },
+      { label: 'Lowest Density', district: lowCoverage?.DIS_NAME, value: `${(lowCoverage?.facilitiesPer100k || 0).toFixed(2)}/100K`, icon: TrendingDown, color: 'text-destructive' },
+      { label: 'Highest Density', district: bestServed?.DIS_NAME, value: `${(bestServed?.facilitiesPer100k || 0).toFixed(2)}/100K`, icon: MapPin, color: 'text-accent' },
       { label: 'Most Urbanized', district: mostUrban?.DIS_NAME, value: `${mostUrban?.Urban_percent}%`, icon: Building2, color: 'text-primary' },
       { label: 'Lowest Literacy', district: lowLiteracy?.DIS_NAME, value: `${lowLiteracy?.Literacy_rate}%`, icon: BookOpen, color: 'text-destructive' },
     ];
