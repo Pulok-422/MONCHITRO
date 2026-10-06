@@ -7,6 +7,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import 'leaflet.heat';
 import type {
   DistrictPop,
+  DistrictGeoJSON,
   Facility,
   MapDisplay,
   ChoroplethMetric,
@@ -17,7 +18,12 @@ import { LocateFixed, Expand, Minimize, Home, ChevronDown, ChevronUp, Layers, Fo
 import { toast } from 'sonner';
 import { toPng } from 'html-to-image';
 import { facilityCompleteness, completenessClasses, COMPLETENESS_TOTAL } from '@/lib/dataCompleteness';
-import MetricInfoTooltip, { METRIC_TOOLTIPS } from './MetricInfoTooltip';
+import MetricInfoTooltip from './MetricInfoTooltip';
+import { METRIC_TOOLTIPS } from '@/lib/metricTooltips';
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+}
 
 const BANGLADESH_CENTER: [number, number] = [23.7, 90.35];
 const BANGLADESH_ZOOM = 9.5;
@@ -137,6 +143,7 @@ function metricLabel(metric: ChoroplethMetric) {
     case 'facilities': return 'Total Facilities';
     case 'population': return 'Population';
     case 'facilitiesPer100k': return 'Facilities per 100K';
+    case 'populationPerFacility': return 'Population per Facility';
     case 'povertyIndex': return 'Poverty Index';
     case 'literacyRate': return 'Literacy Rate';
     case 'urbanPercent': return 'Urban Percent';
@@ -156,7 +163,7 @@ function formatRangeValue(value: number, metric: ChoroplethMetric) {
 }
 
 interface DistrictMapProps {
-  geojson: any;
+  geojson: DistrictGeoJSON;
   districts: DistrictPop[];
   facilities: Facility[];
   mapDisplay: MapDisplay;
@@ -179,7 +186,7 @@ export default function DistrictMap({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const geoLayerRef = useRef<L.GeoJSON | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
-  const heatRef = useRef<any>(null);
+  const heatRef = useRef<L.HeatLayer | null>(null);
   const bubbleRef = useRef<L.LayerGroup | null>(null);
   const labelRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
@@ -211,7 +218,7 @@ export default function DistrictMap({
   const centroidMap = useMemo(() => {
     const m = new Map<string, L.LatLng>();
     if (!geojson) return m;
-    geojson.features.forEach((feat: any) => {
+    geojson.features.forEach((feat) => {
       const code = feat?.properties?.DIS_CODE;
       if (!code) return;
       try {
@@ -333,7 +340,8 @@ export default function DistrictMap({
       tileRef.current = null;
     }
     tileRef.current = L.tileLayer(TILE_LAYERS[basemap], {
-      attribution: basemap === 'satellite' ? '© Esri' : '© OpenStreetMap',
+      attribution: basemap === 'satellite' ? '© Esri' : basemap === 'light' ? '© OpenStreetMap © CARTO' : '© OpenStreetMap',
+      crossOrigin: 'anonymous',
     }).addTo(mapRef.current);
   }, [basemap]);
 
@@ -378,7 +386,7 @@ export default function DistrictMap({
         const d = districtMap.get(code);
         if (d) {
           lyr.bindTooltip(
-            `<div class="district-name">${name}</div>
+            `<div class="district-name">${escapeHtml(name)}</div>
              <div class="tooltip-row"><span>Facilities</span><span class="value">${d.total_facilities}</span></div>
              <div class="tooltip-row"><span>Population</span><span class="value">${(d.Population / 1e6).toFixed(2)}M</span></div>
              <div class="tooltip-row"><span>Poverty Index</span><span class="value">${d['Poverty Index']}</span></div>
@@ -388,19 +396,19 @@ export default function DistrictMap({
           );
         } else {
           lyr.bindTooltip(
-            `<div class="district-name">${name}</div>
+            `<div class="district-name">${escapeHtml(name)}</div>
              <div class="tooltip-row"><span>Status</span><span class="value">No data</span></div>`,
             { className: 'district-tooltip', sticky: true }
           );
         }
         lyr.on('mouseover', () => {
-          (lyr as any).setStyle({
+          (lyr as L.Path).setStyle({
             weight: 2.5,
             color: '#000000',
             fillOpacity: Math.min(fillOpacity + 0.15, 0.8),
           });
         });
-        lyr.on('mouseout', () => geoLayerRef.current?.resetStyle(lyr as any));
+        lyr.on('mouseout', () => geoLayerRef.current?.resetStyle(lyr as L.Path));
         lyr.on('click', () => onDistrictClick(selectedDistrict === code ? null : code));
       },
     }).addTo(map);
@@ -433,7 +441,7 @@ export default function DistrictMap({
       map.setZoom(BANGLADESH_ZOOM);
       return;
     }
-    const feat = geojson.features.find((f: any) => f.properties.DIS_CODE === selectedDistrict);
+    const feat = geojson.features.find((f) => f.properties.DIS_CODE === selectedDistrict);
     if (feat) map.fitBounds(L.geoJSON(feat).getBounds(), { padding: [40, 40] });
   }, [selectedDistrict, geojson]);
 
@@ -444,9 +452,9 @@ export default function DistrictMap({
     if (clusterRef.current) map.removeLayer(clusterRef.current);
     if (!mapDisplay.showMarkers) return;
 
-    const cluster = (L as any).markerClusterGroup({
+    const cluster = L.markerClusterGroup({
       maxClusterRadius: 30,
-      iconCreateFunction: (c: any) => {
+      iconCreateFunction: (c: L.MarkerCluster) => {
         const count = c.getChildCount();
         const size = count < 10 ? 28 : count < 50 ? 36 : 46;
         return L.divIcon({
@@ -464,14 +472,14 @@ export default function DistrictMap({
         const badgeClass = completenessClasses(score);
         marker.bindPopup(
           `<div class="facility-popup">
-            <h3>${f.facility_name}</h3>
+            <h3>${escapeHtml(f.facility_name)}</h3>
             <div class="popup-grid">
-              <span class="popup-label">Type</span><span class="popup-value">${f.facility_type || '-'}</span>
+              <span class="popup-label">Type</span><span class="popup-value">${escapeHtml(f.facility_type || '-')}</span>
               <span class="popup-label">District</span><span class="popup-value">${f.DIS_NAME || '-'}</span>
-              <span class="popup-label">Services</span><span class="popup-value">${f.services_provided || '-'}</span>
-              <span class="popup-label">Cost</span><span class="popup-value">${f.cost || '-'}</span>
-              <span class="popup-label">Ownership</span><span class="popup-value">${f.ownership || '-'}</span>
-              ${f.mobile_contact_number ? `<span class="popup-label">Phone</span><span class="popup-value">${f.mobile_contact_number}</span>` : ''}
+              <span class="popup-label">Services</span><span class="popup-value">${escapeHtml(f.services_provided || '-')}</span>
+              <span class="popup-label">Cost</span><span class="popup-value">${escapeHtml(f.cost || '-')}</span>
+              <span class="popup-label">Ownership</span><span class="popup-value">${escapeHtml(f.ownership || '-')}</span>
+              ${f.mobile_contact_number ? `<span class="popup-label">Phone</span><span class="popup-value">${escapeHtml(f.mobile_contact_number)}</span>` : ''}
             </div>
             <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">
               <span class="${badgeClass}" style="display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:9999px;">Data: ${score}/${COMPLETENESS_TOTAL} fields complete</span>
@@ -504,7 +512,7 @@ export default function DistrictMap({
       .filter((f) => f.latitude && f.longitude)
       .map((f) => [f.latitude, f.longitude, 1]);
     if (points.length > 0) {
-      heatRef.current = (L as any).heatLayer(points, {
+      heatRef.current = L.heatLayer(points, {
         radius: 22,
         blur: 18,
         maxZoom: 12,
@@ -535,6 +543,7 @@ export default function DistrictMap({
       const center = centroidMap.get(d.DIS_CODE);
       if (!center) return;
       const value = getMetricValue(d, mapDisplay.bubbleMetric);
+      if (!Number.isFinite(value) || value <= 0) return;
       const radius = Math.max(4, Math.sqrt(value / denom) * 35);
       L.circleMarker(center, {
         radius,
@@ -543,7 +552,7 @@ export default function DistrictMap({
         color: 'hsl(210, 80%, 40%)',
         weight: 1.5,
       })
-        .bindTooltip(`<strong>${d.DIS_NAME}</strong><br/>${value.toLocaleString()}`, {
+        .bindTooltip(`<strong>${escapeHtml(d.DIS_NAME)}</strong><br/>${value.toLocaleString()}`, {
           className: 'district-tooltip',
         })
         .addTo(group);
@@ -567,7 +576,7 @@ export default function DistrictMap({
     if (!mapDisplay.showLabels) return;
 
     const group = L.layerGroup();
-    geojson.features.forEach((feat: any) => {
+    geojson.features.forEach((feat) => {
       const code = feat?.properties?.DIS_CODE;
       const name = feat?.properties?.DIS_NAME;
       if (!name) return;
@@ -576,7 +585,7 @@ export default function DistrictMap({
       L.marker(center, {
         icon: L.divIcon({
           className: '',
-          html: `<div style="font-size:9px;font-weight:600;color:#1a1a1a;text-shadow:0 0 3px white,0 0 3px white;white-space:nowrap;pointer-events:none">${name}</div>`,
+          html: `<div style="font-size:9px;font-weight:600;color:#1a1a1a;text-shadow:0 0 3px white,0 0 3px white;white-space:nowrap;pointer-events:none">${escapeHtml(name)}</div>`,
           iconAnchor: [0, 0],
         }),
         interactive: false,
@@ -632,8 +641,8 @@ export default function DistrictMap({
         const nearestHtml = nearest
           ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;font-size:11px;color:#374151">
               <div style="font-weight:600;color:#1d4ed8">Nearest Facility</div>
-              <div>${nearest.name}</div>
-              <div style="color:#6b7280">${nearest.dist.toFixed(1)} km · ~${Math.round((nearest.dist / 0.8) * 2)} min</div>
+              <div>${escapeHtml(nearest.name)}</div>
+              <div style="color:#6b7280">${nearest.dist.toFixed(1)} km straight-line distance</div>
             </div>`
           : '';
 
@@ -662,10 +671,11 @@ export default function DistrictMap({
         userMarkerRef.current.openPopup();
         map.setView([latitude, longitude], 10);
       },
-      () => {
-        setLocationError('Location access denied');
+      (error) => {
+        setLocationError(error.code === 1 ? 'Location access denied' : error.code === 3 ? 'Location request timed out' : 'Location unavailable');
         setTimeout(() => setLocationError(null), 3000);
-      }
+      },
+      { timeout: 15000, maximumAge: 60000 }
     );
   }, [facilities]);
 
@@ -690,7 +700,7 @@ export default function DistrictMap({
           // skip leaflet zoom/attribution controls and our floating buttons
           if (!(node instanceof HTMLElement)) return true;
           const cls = node.className?.toString?.() || '';
-          if (cls.includes('leaflet-control')) return false;
+          if (cls.includes('leaflet-control') && !cls.includes('leaflet-control-attribution')) return false;
           return true;
         },
       });
@@ -712,8 +722,17 @@ export default function DistrictMap({
   }, []);
 
   useEffect(() => {
-    setTimeout(() => mapRef.current?.invalidateSize(), 200);
+    const timer = setTimeout(() => mapRef.current?.invalidateSize(), 200);
+    return () => clearTimeout(timer);
   }, [isFullscreen]);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => mapRef.current?.invalidateSize());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   if (!geojson) return null;
 
@@ -916,8 +935,8 @@ export default function DistrictMap({
       )}
 
       {/* Legend — Fix #21 collapsible */}
-      {mapDisplay.showChoropleth && breaks.length > 0 && (
-        <div className="map-legend-floating absolute left-3 bottom-3 z-[1000] min-w-[220px] rounded-2xl border border-border bg-card/95 shadow-xl backdrop-blur-md">
+      {mapDisplay.showChoropleth && breaks.length > 0 && !selectedDistrictData && (
+        <div className="map-legend-floating absolute left-3 bottom-3 z-[1000] w-[220px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-border bg-card/95 shadow-xl backdrop-blur-md">
           <button
             type="button"
             onClick={() => setLegendOpen((o) => !o)}
