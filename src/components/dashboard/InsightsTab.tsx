@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { costCategory, parseCostBracket, relativeDifference, coverageTier, DATA_NOTICE } from '@/lib/dashboardData';
+import { useState, useMemo, type ElementType } from 'react';
 import type { DistrictPop, Facility } from '@/types/dashboard';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -37,10 +38,10 @@ function truncateLabel(label: string, max = 14) {
 }
 
 function getSeverityTier(per100k: number): { label: string; color: string; bg: string } {
-  if (per100k <= 0.08) return { label: 'Critical', color: C.gap, bg: C.gapBg };
-  if (per100k <= 0.18) return { label: 'High gap', color: C.amber, bg: C.amberBg };
-  if (per100k <= 0.3) return { label: 'Moderate', color: C.blue700, bg: C.blue100 };
-  return { label: 'Adequate', color: C.blue600, bg: C.blue50 };
+  const colors = [C.gap, C.amber, C.blue700, C.blue600];
+  const backgrounds = [C.gapBg, C.amberBg, C.blue100, C.blue50];
+  const value = coverageTier(per100k);
+  return { label: value.label, color: colors[value.tier], bg: backgrounds[value.tier] };
 }
 
 function countBy<T>(arr: T[], key: (item: T) => string): { name: string; value: number }[] {
@@ -54,37 +55,6 @@ function countBy<T>(arr: T[], key: (item: T) => string): { name: string; value: 
   return Object.entries(map)
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => b.value - a.value);
-}
-
-function parseCostBracket(cost: string): string {
-  if (!cost) return 'Unknown';
-
-  const lower = cost.toLowerCase();
-
-  if (lower === 'free' || lower.includes('free')) return 'Free';
-
-  const nums = cost.match(/\d+/g);
-
-  if (!nums) return 'Unknown';
-
-  const avg = nums.reduce((s, n) => s + parseInt(n), 0) / nums.length;
-
-  if (avg < 100) return '1–99 BDT';
-  if (avg < 500) return '100–499 BDT';
-  if (avg < 1000) return '500–999 BDT';
-
-  return '1000+ BDT';
-}
-
-function getDiff(valA: number, valB: number) {
-  if (valB === 0) return { pct: 0, direction: 'same' as const };
-
-  const pct = ((valA - valB) / valB) * 100;
-
-  return {
-    pct: Math.abs(pct),
-    direction: pct > 0 ? 'higher' as const : pct < 0 ? 'lower' as const : 'same' as const,
-  };
 }
 
 function getDiffColor(direction: 'higher' | 'lower' | 'same', higherIsBetter: boolean) {
@@ -227,7 +197,7 @@ function RankingGrid({
                   <div
                     className="h-1.5 rounded-full"
                     style={{
-                      width: `${Math.max(widthPct, 8)}%`,
+                      width: `${widthPct}%`,
                       backgroundColor: barColor,
                     }}
                   />
@@ -293,7 +263,7 @@ function LollipopChart({
 
 const RADIAN = Math.PI / 180;
 
-function DonutLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) {
+function DonutLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx: number; cy: number; midAngle: number; innerRadius: number; outerRadius: number; percent: number }) {
   if (percent < 0.07) return null;
 
   const r = innerRadius + (outerRadius - innerRadius) * 0.55;
@@ -315,7 +285,7 @@ function DonutLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any
   );
 }
 
-function ScatterTooltip({ active, payload }: any) {
+function ScatterTooltip({ active, payload }: { active?: boolean; payload?: { payload: { name: string; population: number; per100k: number; facilities: number } }[] }) {
   if (!active || !payload?.length) return null;
 
   const d = payload[0].payload;
@@ -366,7 +336,7 @@ function StatCard({
 }: {
   value: number;
   label: string;
-  icon: any;
+  icon: ElementType;
   color: string;
 }) {
   return (
@@ -391,9 +361,10 @@ function StatCard({
 interface InsightsProps {
   districts: DistrictPop[];
   facilities: Facility[];
+  nationalDistricts: DistrictPop[];
 }
 
-export default function InsightsTab({ districts, facilities }: InsightsProps) {
+export default function InsightsTab({ districts, facilities, nationalDistricts }: InsightsProps) {
   const [distA, setDistA] = useState('');
   const [distB, setDistB] = useState('');
   const [selectedDivision, setSelectedDivision] = useState<string | null>(null);
@@ -407,11 +378,11 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
   );
 
   const national = useMemo<DistrictPop | null>(() => {
-    if (!districts.length) return null;
+    if (!nationalDistricts.length) return null;
 
-    const n = districts.length;
-    const totalPop = districts.reduce((s, d) => s + d.Population, 0);
-    const totalFac = districts.reduce((s, d) => s + d.total_facilities, 0);
+    const n = nationalDistricts.length;
+    const totalPop = nationalDistricts.reduce((s, d) => s + d.Population, 0);
+    const totalFac = nationalDistricts.reduce((s, d) => s + d.total_facilities, 0);
 
     return {
       DIV_NAME: 'National',
@@ -424,17 +395,17 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
       Rural_population: 0,
       Urban_population: 0,
       Total_households: Math.round(
-        districts.reduce((s, d) => s + (d.Total_households || 0), 0) / n
+        nationalDistricts.reduce((s, d) => s + (d.Total_households || 0), 0) / n
       ),
       Average_household_size: 0,
       total_facilities: Math.round(totalFac / n),
       facilitiesPer100k: totalPop > 0 ? (totalFac / totalPop) * 100000 : 0,
       populationPerFacility: totalFac > 0 ? totalPop / totalFac : 0,
-      'Poverty Index': districts.reduce((s, d) => s + d['Poverty Index'], 0) / n,
-      Literacy_rate: districts.reduce((s, d) => s + d.Literacy_rate, 0) / n,
-      Urban_percent: districts.reduce((s, d) => s + d.Urban_percent, 0) / n,
+      'Poverty Index': nationalDistricts.reduce((s, d) => s + d['Poverty Index'], 0) / n,
+      Literacy_rate: nationalDistricts.reduce((s, d) => s + d.Literacy_rate, 0) / n,
+      Urban_percent: nationalDistricts.reduce((s, d) => s + d.Urban_percent, 0) / n,
     };
-  }, [districts]);
+  }, [nationalDistricts]);
 
   const compA = districts.find((d) => d.DIS_CODE === distA);
   const compB = distB === 'national' ? national : districts.find((d) => d.DIS_CODE === distB);
@@ -459,8 +430,8 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
       },
       {
         metric: 'Per 100K',
-        A: +(compA.facilitiesPer100k || 0).toFixed(2),
-        B: +(compB.facilitiesPer100k || 0).toFixed(2),
+        A: compA.facilitiesPer100k || 0,
+        B: compB.facilitiesPer100k || 0,
         unit: '',
         higherIsBetter: true,
       },
@@ -510,7 +481,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
         .slice(0, 10)
         .map((d) => {
           const p = +(d.facilitiesPer100k || 0).toFixed(2);
-          const s = getSeverityTier(p);
+          const s = getSeverityTier(d.facilitiesPer100k || 0);
 
           return {
             name: d.DIS_NAME || 'Unknown',
@@ -532,7 +503,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
         .slice(0, 10)
         .map((d) => {
           const p = +(d.facilitiesPer100k || 0).toFixed(2);
-          const s = getSeverityTier(p);
+          const s = getSeverityTier(d.facilitiesPer100k || 0);
 
           return {
             name: d.DIS_NAME || 'Unknown',
@@ -632,7 +603,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
         divs[div].private++;
       }
 
-      if ((f.cost || '').toLowerCase().includes('free')) {
+      if (costCategory(f.cost) === 'Free') {
         divs[div].free++;
       }
 
@@ -651,7 +622,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
   }, [facilities]);
 
   const costBrackets = useMemo(() => {
-    const order = ['Free', '1–99 BDT', '100–499 BDT', '500–999 BDT', '1000+ BDT', 'Unknown'];
+    const order = ['Free', '1–99 BDT', '100–499 BDT', '500–999 BDT', '1000+ BDT', 'Variable / package', 'Unknown'];
     const map: Record<string, number> = {};
 
     order.forEach((k) => {
@@ -671,19 +642,19 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
 
   const accessMatrix = useMemo(() => {
     const walkinFree = facilities.filter(
-      (f) => f.appointment_required === 'No' && (f.cost || '').toLowerCase().includes('free')
+      (f) => f.appointment_required === 'No' && costCategory(f.cost) === 'Free'
     ).length;
 
     const walkinPaid = facilities.filter(
-      (f) => f.appointment_required === 'No' && !(f.cost || '').toLowerCase().includes('free')
+      (f) => f.appointment_required === 'No' && costCategory(f.cost) === 'Paid'
     ).length;
 
     const apptFree = facilities.filter(
-      (f) => f.appointment_required === 'Yes' && (f.cost || '').toLowerCase().includes('free')
+      (f) => f.appointment_required === 'Yes' && costCategory(f.cost) === 'Free'
     ).length;
 
     const apptPaid = facilities.filter(
-      (f) => f.appointment_required === 'Yes' && !(f.cost || '').toLowerCase().includes('free')
+      (f) => f.appointment_required === 'Yes' && costCategory(f.cost) === 'Paid'
     ).length;
 
     return [
@@ -691,6 +662,8 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
       { name: 'Walk-in · Paid', value: walkinPaid, fill: C.blue400 },
       { name: 'Appt · Free', value: apptFree, fill: C.blue200 },
       { name: 'Appt · Paid', value: apptPaid, fill: C.slate300 },
+      { name: 'Walk-in · Cost unknown', value: facilities.filter(f => f.appointment_required === 'No' && costCategory(f.cost) === 'Unknown').length, fill: C.slate500 },
+      { name: 'Appt · Cost unknown', value: facilities.filter(f => f.appointment_required === 'Yes' && costCategory(f.cost) === 'Unknown').length, fill: C.slate700 },
     ];
   }, [facilities]);
 
@@ -758,9 +731,9 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
     return divisionNames.map((divName) => {
       const dd = distByDiv[divName] || [];
 
-      const avgCov = dd.length
-        ? dd.reduce((s, d) => s + (d.facilitiesPer100k || 0), 0) / dd.length
-        : 0;
+      const divisionPopulation = dd.reduce((sum, d) => sum + d.Population, 0);
+      const divisionCount = facilities.filter(f => f.DIV_NAME === divName).length;
+      const avgCov = divisionPopulation > 0 ? divisionCount / divisionPopulation * 100000 : 0;
 
       const avgLit = dd.length
         ? dd.reduce((s, d) => s + d.Literacy_rate, 0) / dd.length
@@ -778,7 +751,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
 
       const pctFree = divFacs.length
         ? Math.round(
-            (divFacs.filter((f) => (f.cost || '').toLowerCase().includes('free')).length / divFacs.length) * 100
+            (divFacs.filter((f) => costCategory(f.cost) === 'Free').length / divFacs.length) * 100
           )
         : 0;
 
@@ -806,6 +779,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      <p className="rounded-xl border border-border bg-muted/40 p-3 text-xs text-muted-foreground">{DATA_NOTICE}</p>
       <section className="space-y-4">
         <SectionHeader
           step="1"
@@ -814,8 +788,8 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
         />
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <RankingGrid title="10 Most Underserved Districts" data={underserved} variant="gap" />
-          <RankingGrid title="10 Best Served Districts" data={bestServed} variant="served" />
+          <RankingGrid title="10 Districts with Lowest Indexed Density" data={underserved} variant="gap" />
+          <RankingGrid title="10 Districts with Highest Indexed Density" data={bestServed} variant="served" />
         </div>
 
         <div className="dashboard-panel rounded-xl border border-border bg-card p-3 md:p-4">
@@ -920,7 +894,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                 <Scatter
                   name="Other districts"
                   data={facilityVsNeed.rest}
-                  shape={(props: any) => (
+                  shape={(props: { cx?: number; cy?: number }) => (
                     <circle
                       cx={props.cx}
                       cy={props.cy}
@@ -936,7 +910,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                 <Scatter
                   name="Gap unlabelled"
                   data={facilityVsNeed.gapUnlabelled}
-                  shape={(props: any) => (
+                  shape={(props: { cx?: number; cy?: number }) => (
                     <circle
                       cx={props.cx}
                       cy={props.cy}
@@ -952,7 +926,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                 <Scatter
                   name="Gap priority"
                   data={facilityVsNeed.gapLabelled}
-                  shape={(props: any) => (
+                  shape={(props: { cx?: number; cy?: number }) => (
                     <circle
                       cx={props.cx}
                       cy={props.cy}
@@ -980,7 +954,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
           </div>
 
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground italic">
-            Dashed lines mark the national median population and median coverage. Districts below the coverage line are below average. Those also right of the population line are the most urgent.
+            Dashed lines mark the median population and indexed facility density within the selected geography. Districts below the density line have fewer indexed facilities per person; this does not establish service need or urgency.
           </p>
         </div>
       </section>
@@ -1227,7 +1201,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
 
           <ChartCard
             title="Access Type Breakdown"
-            insight="Walk-in and free is the most accessible combination. Appointment-only and paid creates the highest barrier."
+            insight="Recorded appointment and cost categories. Unknown costs are shown separately; other access barriers are not measured."
             height={240}
             className="xl:col-span-4"
           >
@@ -1273,7 +1247,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
               color={C.amber}
             />
             <StatCard
-              value={facilities.filter((f) => (f.cost || '').toLowerCase().includes('free')).length}
+              value={facilities.filter((f) => costCategory(f.cost) === 'Free').length}
               label="Free services"
               icon={TrendingUp}
               color={C.blue700}
@@ -1334,7 +1308,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                       const row: Record<string, string | number> = { metric: m };
 
                       divisionRadar.forEach((d) => {
-                        row[d.name] = (d as any)[m];
+                        row[d.name] = Number((d as unknown as Record<string, unknown>)[m]);
                       });
 
                       return row;
@@ -1438,7 +1412,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
         <SectionHeader
           step="5"
           title="Compare any two districts"
-          subtitle="Benchmark a district against another or against the national average to understand relative need and prioritise resource allocation."
+          subtitle="Compare indexed facility density and district context. The national benchmark uses all 64 districts with the same facility filters and search, regardless of selected geography."
         />
 
         <div className="dashboard-panel rounded-xl border border-border bg-card p-4">
@@ -1468,7 +1442,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
               className="h-9 rounded-lg border border-border bg-secondary px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
               <option value="">Select District B</option>
-              <option value="national">National Average</option>
+              <option value="national">National Average (same facility filters)</option>
               {sortedDistricts.map((d) => (
                 <option key={d.DIS_CODE} value={d.DIS_CODE}>
                   {d.DIS_NAME}
@@ -1487,7 +1461,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
         {compA && compB && (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             {compData.map((item, i) => {
-              const diff = getDiff(item.A, item.B);
+              const diff = relativeDifference(item.A, item.B);
               const colorClass = getDiffColor(diff.direction, item.higherIsBetter);
 
               return (
@@ -1502,7 +1476,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                         {compA.DIS_NAME}
                       </div>
                       <div className="text-xl font-bold leading-tight" style={{ color: C.blue700 }}>
-                        {item.A}
+                        {item.metric === 'Per 100K' ? item.A.toFixed(2) : item.A}
                         {item.unit}
                       </div>
                     </div>
@@ -1512,7 +1486,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                         {compB.DIS_NAME}
                       </div>
                       <div className="text-xl font-bold leading-tight" style={{ color: C.blue400 }}>
-                        {item.B}
+                        {item.metric === 'Per 100K' ? item.B.toFixed(2) : item.B}
                         {item.unit}
                       </div>
                     </div>
@@ -1530,7 +1504,7 @@ export default function InsightsTab({ districts, facilities }: InsightsProps) {
                     <span>
                       {diff.direction === 'same'
                         ? 'Equal'
-                        : `${compA.DIS_NAME} is ${diff.pct.toFixed(0)}% ${diff.direction}`}
+                        : diff.pct === null ? `${compA.DIS_NAME} is ${diff.direction}; percentage unavailable against zero` : `${compA.DIS_NAME} is ${diff.pct.toFixed(0)}% ${diff.direction}`}
                     </span>
                   </div>
                 </div>
