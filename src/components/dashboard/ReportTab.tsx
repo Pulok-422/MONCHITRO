@@ -1,3 +1,6 @@
+import { toast } from 'sonner';
+import { coverageTier, DATA_NOTICE } from '@/lib/dashboardData';
+import { computeReport, fmtPop, type ComputedReport } from '@/lib/reportData';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FileText, Globe, LayoutList, MapPin, AlertTriangle,
@@ -10,130 +13,14 @@ import type { DistrictPop, Facility } from '@/types/dashboard';
 interface ReportTabProps { districts: DistrictPop[]; facilities: Facility[]; }
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
-function parseCostBracket(cost: string): string {
-  if (!cost) return 'Unknown';
-  const l = cost.toLowerCase();
-  if (l.includes('free')) return 'Free';
-  const nums = cost.match(/\d+/g);
-  if (!nums) return 'Unknown';
-  const avg = nums.reduce((s, n) => s + parseInt(n), 0) / nums.length;
-  return avg < 100 ? '1–99 BDT' : avg < 500 ? '100–499 BDT' : avg < 1000 ? '500–999 BDT' : '1000+ BDT';
-}
-
 function severity(p: number) {
-  return p <= 0.08 ? { label: 'Critical', cls: 'bg-red-100 text-red-700' }
-    : p <= 0.18 ? { label: 'High Gap', cls: 'bg-amber-100 text-amber-700' }
-    : p <= 0.30 ? { label: 'Moderate', cls: 'bg-blue-100 text-blue-700' }
-    : { label: 'Adequate', cls: 'bg-green-100 text-green-700' };
-}
-
-function fmtPop(n: number) {
-  return n >= 1e6 ? (n / 1e6).toFixed(2) + 'm' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-}
-
-/* ─── types ───────────────────────────────────────────────────────────────── */
-interface DivRow {
-  name: string; total: number; govt: number; priv: number;
-  free: number; child: number; avgPer100k: number; districtCount: number;
-}
-
-interface ComputedReport {
-  hasData: boolean; isFiltered: boolean; scopeLabel: string; scopePct: string;
-  totalFacilities: number; totalPop: number; natAvgPer100k: number;
-  districtsWithFacilities: number;
-  govtCount: number; govtPct: string; privCount: number; privPct: string;
-  freeCount: number; freePct: string; criticalCount: number;
-  walkinCount: number; walkinPct: string; apptCount: number; walkinFreeCount: number;
-  unknownCostCount: number; unknownCostPct: string;
-  medianPer100k: number; belowMedianCount: number;
-  findings: string[];
-  bottom10: DistrictPop[];
-  divRows: DivRow[]; costBrackets: Record<string, number>;
-  topDiv: DivRow | null; topGovtDiv: DivRow | null; topFreeDiv: DivRow | null; lowestDiv: DivRow | null;
-  coveredDivisions: number;
-}
-
-/* ─── computeReport ───────────────────────────────────────────────────────── */
-function computeReport(
-  sd: DistrictPop[], sf: Facility[], allF: Facility[], scopeLabel: string
-): ComputedReport {
-  const isFiltered = scopeLabel !== 'All Bangladesh';
-  if (!sf.length || !sd.length) return { hasData: false, isFiltered, scopeLabel } as ComputedReport;
-
-  const tot = sf.length;
-  const pop = sd.reduce((s, d) => s + d.Population, 0);
-  const avg = pop > 0 ? (tot / pop) * 100000 : 0;
-  const scopePct = allF.length ? ((tot / allF.length) * 100).toFixed(0) : '0';
-  const withFac = sd.filter(d => d.total_facilities > 0).length;
-  const govt = sf.filter(f => f.ownership === 'Government').length;
-  const gPct = ((govt / tot) * 100).toFixed(0);
-  const priv = tot - govt;
-  const pPct = (100 - Number(gPct)).toFixed(0);
-  const free = sf.filter(f => (f.cost || '').toLowerCase().includes('free')).length;
-  const fPct = ((free / tot) * 100).toFixed(0);
-  const crit = sd.filter(d => (d.facilitiesPer100k || 0) <= 0.08).length;
-  const walkin = sf.filter(f => f.appointment_required === 'No').length;
-  const wPct = ((walkin / tot) * 100).toFixed(0);
-  const appt = sf.filter(f => f.appointment_required === 'Yes').length;
-  const wf = sf.filter(f => f.appointment_required === 'No' && (f.cost || '').toLowerCase().includes('free')).length;
-  const unk = sf.filter(f => { const c = (f.cost || '').toLowerCase().trim(); return !c || c === 'unknown' || c === 'n/a'; }).length;
-  const uPct = ((unk / tot) * 100).toFixed(0);
-
-  const s100k = [...sd].map(d => d.facilitiesPer100k || 0).sort((a, b) => a - b);
-  const mid = Math.floor(s100k.length / 2);
-  const median = s100k.length % 2 === 0 ? (s100k[mid - 1] + s100k[mid]) / 2 : s100k[mid];
-  const belowMed = sd.filter(d => (d.facilitiesPer100k || 0) < median).length;
-
-  const bottom10 = [...sd].sort((a, b) => (a.facilitiesPer100k || 0) - (b.facilitiesPer100k || 0)).slice(0, 10);
-  const worst = bottom10[0];
-
-  const findings = [
-    `${crit} of ${sd.length} district(s) have fewer than 0.1 facilities per 100,000 people (scope average: ${avg.toFixed(2)}/100K).`,
-    `${worst?.DIS_NAME} is the most underserved — ${worst?.total_facilities} facilit${worst?.total_facilities === 1 ? 'y' : 'ies'} for ${fmtPop(worst?.Population || 0)} people (${(worst?.facilitiesPer100k || 0).toFixed(2)}/100K).`,
-    `${pPct}% of facilities are private; government provision is only ${gPct}%, raising equity concerns for low-income populations.`,
-    `Only ${wf} facilit${wf === 1 ? 'y' : 'ies'} (${((wf / tot) * 100).toFixed(0)}%) offer both walk-in access and free care — the minimum-barrier pathway.`,
-    `Cost data is missing for ${unk} facilit${unk === 1 ? 'y' : 'ies'} (${uPct}%), limiting patients' ability to assess affordability.`,
-  ];
-
-
-  const divNames = [...new Set(sd.map(d => d.DIV_NAME))];
-  const divRows: DivRow[] = divNames.map(name => {
-    const dd = sd.filter(d => d.DIV_NAME === name);
-    const df = sf.filter(f => f.DIV_NAME === name);
-    const g = df.filter(f => f.ownership === 'Government').length;
-    const fr = df.filter(f => (f.cost || '').toLowerCase().includes('free')).length;
-    const ch = df.filter(f => (f.category_adult_child_both || '').includes('Child')).length;
-    const a = dd.length ? dd.reduce((s, d) => s + (d.facilitiesPer100k || 0), 0) / dd.length : 0;
-    return { name, total: df.length, govt: g, priv: df.length - g, free: fr, child: ch, avgPer100k: a, districtCount: dd.length };
-  }).sort((a, b) => b.total - a.total);
-
-  const brackets = ['Free', '1–99 BDT', '100–499 BDT', '500–999 BDT', '1000+ BDT', 'Unknown'];
-  const costBrackets: Record<string, number> = {};
-  brackets.forEach(b => { costBrackets[b] = 0; });
-  sf.forEach(f => { const b = parseCostBracket(f.cost); costBrackets[b] = (costBrackets[b] || 0) + 1; });
-
-  const covDiv = divRows.filter(r => r.total > 0).length;
-  const topDiv = divRows[0] ?? null;
-  const topGovtDiv = divRows.length ? [...divRows].sort((a, b) => (b.govt / b.total) - (a.govt / a.total))[0] : null;
-  const topFreeDiv = divRows.length ? [...divRows].sort((a, b) => (b.free / b.total) - (a.free / a.total))[0] : null;
-  const lowestDiv = divRows.length ? [...divRows].sort((a, b) => a.avgPer100k - b.avgPer100k)[0] : null;
-
-  return {
-    hasData: true, isFiltered, scopeLabel, scopePct,
-    totalFacilities: tot, totalPop: pop, natAvgPer100k: avg, districtsWithFacilities: withFac,
-    govtCount: govt, govtPct: gPct, privCount: priv, privPct: pPct,
-    freeCount: free, freePct: fPct, criticalCount: crit,
-    walkinCount: walkin, walkinPct: wPct, apptCount: appt, walkinFreeCount: wf,
-    unknownCostCount: unk, unknownCostPct: uPct,
-    medianPer100k: median, belowMedianCount: belowMed,
-    findings, bottom10, divRows, costBrackets,
-    coveredDivisions: covDiv, topDiv, topGovtDiv, topFreeDiv, lowestDiv,
-  };
+  const value = coverageTier(p);
+  return { label: value.label, cls: ['bg-red-100 text-red-700', 'bg-amber-100 text-amber-700', 'bg-blue-100 text-blue-700', 'bg-green-100 text-green-700'][value.tier] };
 }
 
 const SECTIONS = [
   { key: 'summary',    icon: Activity,      title: 'Executive Summary', desc: 'Headline metrics and key findings' },
-  { key: 'coverage',   icon: MapPin,        title: 'Coverage & Gaps',   desc: 'Underserved districts ranked' },
+  { key: 'coverage',   icon: MapPin,        title: 'Coverage & Gaps',   desc: 'Districts ranked by indexed density' },
   { key: 'structure',  icon: Building2,     title: 'System Structure',  desc: 'Govt vs private breakdown' },
   { key: 'access',     icon: Lock,          title: 'Access Barriers',   desc: 'Walk-in, cost, appointment' },
   
@@ -142,16 +29,6 @@ const SECTIONS = [
 
 /* ─── PDF download via html2pdf ───────────────────────────────────────────── */
 async function downloadAsPdf(element: HTMLElement, filename: string) {
-  // Dynamically load html2pdf.js from CDN if not already present
-  if (!(window as any).html2pdf) {
-    await new Promise<void>((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('Failed to load html2pdf'));
-      document.head.appendChild(s);
-    });
-  }
   const opt = {
     margin: [10, 10, 10, 10],
     filename,
@@ -165,7 +42,8 @@ async function downloadAsPdf(element: HTMLElement, filename: string) {
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
   };
-  await (window as any).html2pdf().set(opt).from(element).save();
+  const { default: html2pdf } = await import('html2pdf.js');
+  await html2pdf().set(opt).from(element).save();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -239,7 +117,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
     return `${selectedDivisions.length} Divisions`;
   }, [selectedDivisions, selectedDistricts, districts]);
 
-  const isEmpty = !scopedFacilities.length || !scopedDistricts.length;
+  const isEmpty = !scopedDistricts.length;
 
   // Auto-generate title when scope changes
   useEffect(() => {
@@ -257,7 +135,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
     setSelectedDistricts(p => p.includes(code) ? p.filter(x => x !== code) : [...p, code]);
 
   const toggleSection = (key: string) =>
-    setSelectedSections(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setSelectedSections(p => { const n = new Set(p); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
   const handleGenerate = () => {
     setReportData(computeReport(scopedDistricts, scopedFacilities, facilities, scopeLabel));
@@ -272,6 +150,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
       await downloadAsPdf(reportRef.current, `mhfe-report-${slug}.pdf`);
     } catch (e) {
       console.error('PDF download failed:', e);
+      toast.error('Could not create PDF. Please retry or use your browser’s Print / Save as PDF.');
     } finally {
       setDownloading(false);
     }
@@ -327,7 +206,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
             {/* Cover strip */}
             <div style={{ background: 'linear-gradient(90deg, #1d4ed8 0%, #3b82f6 100%)', height: 8 }} />
 
-            <div className="p-10">
+            <div className="p-4 sm:p-10">
               {/* Cover block */}
               <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', color: '#1d4ed8', textTransform: 'uppercase', marginBottom: 6, fontFamily: 'Arial, sans-serif' }}>
                 District-level Decision Support · Bangladesh
@@ -374,7 +253,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
                             ['Districts Covered', `${rd.districtsWithFacilities} / ${scopedDistricts.length}`],
                             ['Govt Facilities', `${rd.govtCount} (${rd.govtPct}%)`],
                             ['Free Services', `${rd.freeCount} (${rd.freePct}%)`],
-                            ['Critical Districts', rd.criticalCount],
+                            ['Very low density districts', rd.criticalCount],
                             ['Avg per 100K Pop', rd.natAvgPer100k.toFixed(2)],
                           ].map(([label, value]) => (
                             <div key={String(label)} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px' }}>
@@ -402,7 +281,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
                         <PdfSectionHeader num={n} title="Coverage & Gaps" />
                         <p style={{ fontSize: 12, color: '#475569', lineHeight: 1.7, marginBottom: 14, fontFamily: 'Arial, sans-serif' }}>
                           Within {rd.scopeLabel}, <strong>{rd.belowMedianCount}</strong> of <strong>{scopedDistricts.length}</strong> districts fall below the
-                          median of <strong>{rd.medianPer100k.toFixed(2)}</strong> facilities per 100,000. The 10 most underserved districts are listed below.
+                          median of <strong>{rd.medianPer100k.toFixed(2)}</strong> facilities per 100,000. The districts with the lowest indexed density are listed below.
                         </p>
                         <PdfTable
                           headers={['#', 'District', 'Division', 'Population', 'Facilities', 'Per 100K', 'Status']}
@@ -460,7 +339,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
                         <PdfSectionHeader num={n} title="Access Barriers" />
                         <p style={{ fontSize: 12, color: '#475569', lineHeight: 1.7, marginBottom: 14, fontFamily: 'Arial, sans-serif' }}>
                           <strong>{rd.walkinPct}%</strong> of facilities accept walk-ins, <strong>{rd.freePct}%</strong> offer free services,
-                          and only <strong>{rd.walkinFreeCount}</strong> combine both — the minimum-barrier access pathway.
+                          and only <strong>{rd.walkinFreeCount}</strong> combine both.
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
                           {[
@@ -477,7 +356,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
                         </div>
                         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#475569', textTransform: 'uppercase', marginBottom: 10, fontFamily: 'Arial, sans-serif' }}>Cost Distribution</p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {(['Free', '1–99 BDT', '100–499 BDT', '500–999 BDT', '1000+ BDT', 'Unknown'] as const).map(b => {
+                          {(['Free', '1–99 BDT', '100–499 BDT', '500–999 BDT', '1000+ BDT', 'Variable / package', 'Unknown'] as const).map(b => {
                             const v = rd.costBrackets[b] || 0;
                             const pct = rd.totalFacilities ? (v / rd.totalFacilities) * 100 : 0;
                             return (
@@ -504,15 +383,15 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
                             : `Bangladesh's 8 divisions show varying patterns of provision. `}
                           {rd.topGovtDiv && `${rd.topGovtDiv.name} has the largest government share. `}
                           {rd.topFreeDiv && `${rd.topFreeDiv.name} offers the highest proportion of free care. `}
-                          {rd.lowestDiv && `${rd.lowestDiv.name} has the lowest average per-100K coverage.`}
+                          {rd.lowestDiv && `${rd.lowestDiv.name} has the lowest indexed facility density per 100K.`}
                         </p>
                         <PdfTable
                           headers={['Division', 'Districts', 'Total', 'Govt', 'Govt %', 'Free', 'Child', 'Avg/100K', 'Profile']}
                           rows={rd.divRows.map(r => {
                             let prof = { l: 'Mixed', cls: 'bg-slate-100 text-slate-700' };
-                            if (rd.lowestDiv && r.name === rd.lowestDiv.name) prof = { l: 'Underserved', cls: 'bg-red-100 text-red-700' };
+                            if (rd.lowestDiv && r.name === rd.lowestDiv.name) prof = { l: 'Lowest density', cls: 'bg-red-100 text-red-700' };
                             else if (rd.topGovtDiv && r.name === rd.topGovtDiv.name) prof = { l: 'Govt-led', cls: 'bg-blue-100 text-blue-700' };
-                            else if (rd.topFreeDiv && r.name === rd.topFreeDiv.name) prof = { l: 'Accessible', cls: 'bg-green-100 text-green-700' };
+                            else if (rd.topFreeDiv && r.name === rd.topFreeDiv.name) prof = { l: 'Highest free share', cls: 'bg-green-100 text-green-700' };
                             return [
                               r.name,
                               String(r.districtCount),
@@ -537,6 +416,7 @@ export default function ReportTab({ districts, facilities }: ReportTabProps) {
                 );
               })}
 
+              <p style={{ fontSize: 11, color: '#475569', marginTop: 20, lineHeight: 1.6 }}>{DATA_NOTICE} Cost brackets keep different tariffs, ranges, and monthly/package prices separate from single visit prices.</p>
               {/* Footer */}
               <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 36, paddingTop: 14, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', fontFamily: 'Arial, sans-serif' }}>
                 <span>MONCHITRO · Bangladesh</span>
