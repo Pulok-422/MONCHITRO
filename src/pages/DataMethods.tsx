@@ -1,3 +1,5 @@
+import { useDataLoader } from '@/hooks/useDataLoader';
+import { isKnownValue, costCategory, DATA_NOTICE } from '@/lib/dashboardData';
 import type { ElementType, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -15,11 +17,6 @@ import { Button } from '@/components/ui/button';
 
 const DASHBOARD_VERSION = 'v1.0';
 const DATA_LAST_UPDATED = '12 June 2026';
-const FACILITY_RECORDS = 371;
-const DISTRICTS_WITH_INDEXED_FACILITIES = 44;
-const DISTRICT_DENOMINATORS = 64;
-const ZERO_INDEXED_DISTRICTS = 20;
-
 function SectionCard({
   id,
   icon: Icon,
@@ -104,6 +101,16 @@ function IndicatorRow({
 
 export default function DataMethods() {
   const navigate = useNavigate();
+  const { districts, facilities, loading, error } = useDataLoader();
+  const FACILITY_RECORDS = facilities.length;
+  const DISTRICTS_WITH_INDEXED_FACILITIES = districts.filter(d => d.total_facilities > 0).length;
+  const DISTRICT_DENOMINATORS = districts.length;
+  const ZERO_INDEXED_DISTRICTS = districts.filter(d => d.total_facilities === 0).length;
+  const websiteCount = facilities.filter(f => isKnownValue(f.website)).length;
+  const costCount = facilities.filter(f => costCategory(f.cost) !== 'Unknown').length;
+  const coordinateCount = facilities.filter(f => Number.isFinite(f.latitude) && Number.isFinite(f.longitude) && f.latitude >= 20.5 && f.latitude <= 26.7 && f.longitude >= 88 && f.longitude <= 92.7).length;
+  const percent = (count: number) => FACILITY_RECORDS ? (count / FACILITY_RECORDS * 100).toFixed(1) + '%' : '—';
+  if (loading || error) return <div className="min-h-screen bg-background"><AppHeader /><main id="main-content" className="p-6"><p>{error || 'Loading data documentation…'}</p></main></div>;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -332,25 +339,25 @@ export default function DataMethods() {
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-xl border border-border bg-background p-4">
                 <p className="text-xs text-muted-foreground">Spatial coordinates</p>
-                <p className="mt-1 text-lg font-bold text-foreground">100%</p>
+                <p className="mt-1 text-lg font-bold text-foreground">{percent(coordinateCount)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  371 of 371 records
+                  {coordinateCount} of {FACILITY_RECORDS} records
                 </p>
               </div>
 
               <div className="rounded-xl border border-border bg-background p-4">
                 <p className="text-xs text-muted-foreground">Website completeness</p>
-                <p className="mt-1 text-lg font-bold text-foreground">38.0%</p>
+                <p className="mt-1 text-lg font-bold text-foreground">{percent(websiteCount)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  141 of 371 records
+                  {websiteCount} of {FACILITY_RECORDS} records
                 </p>
               </div>
 
               <div className="rounded-xl border border-border bg-background p-4">
                 <p className="text-xs text-muted-foreground">Cost completeness</p>
-                <p className="mt-1 text-lg font-bold text-foreground">60.9%</p>
+                <p className="mt-1 text-lg font-bold text-foreground">{percent(costCount)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  226 of 371 records
+                  {costCount} of {FACILITY_RECORDS} records
                 </p>
               </div>
             </div>
@@ -494,6 +501,7 @@ export default function DataMethods() {
             </div>
           </SectionCard>
 
+          <p className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">{DATA_NOTICE} Facility counts and ratios in the dashboard reflect current facility filters. The national comparison retains all districts with the same facility criteria. Population-per-facility values are unavailable when the indexed count is zero.</p>
           <SectionCard id="limitations" icon={ShieldAlert} title="Interpretation limitations">
             <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
               <li>
