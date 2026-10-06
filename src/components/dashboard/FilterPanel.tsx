@@ -23,7 +23,7 @@ interface FilterPanelProps {
   resetFilters: () => void;
   filterOptions: {
     divisions: { code: string; name: string }[];
-    districts: { code: string; name: string }[];
+    districts: { code: string; name: string; divisionCode: string }[];
     facilityTypes: string[];
     ownership: string[];
     origin: string[];
@@ -71,49 +71,14 @@ export default function FilterPanel({
   const [districtSearch, setDistrictSearch] = useState('');
   const [divisionOpen, setDivisionOpen] = useState(false);
 
-  // Build DIV_CODE → Set<DIS_CODE> from facilities (each facility carries both codes)
-  const divToDistricts = useMemo(() => {
-    const m = new Map<string, Set<string>>();
-
-    facilities.forEach((f) => {
-      if (!f.DIV_CODE || !f.DIS_CODE) return;
-
-      if (!m.has(f.DIV_CODE)) m.set(f.DIV_CODE, new Set());
-
-      m.get(f.DIV_CODE)!.add(f.DIS_CODE);
-    });
-
-    return m;
-  }, [facilities]);
-
   const toggleDivision = (divCode: string, on: boolean) => {
-    const districtsInDiv = Array.from(divToDistricts.get(divCode) || []);
-
-    if (on) {
-      const nextDivs = [...new Set([...filters.divisions, divCode])];
-      const nextDistricts = [...new Set([...filters.districts, ...districtsInDiv])];
-
-      updateFilter('divisions', nextDivs);
-      updateFilter('districts', nextDistricts);
-    } else {
-      const nextDivs = filters.divisions.filter((d) => d !== divCode);
-
-      // Keep districts that are in another still-selected division OR not in this division at all
-      const otherDivDistricts = new Set<string>();
-
-      nextDivs.forEach((dc) => divToDistricts.get(dc)?.forEach((x) => otherDivDistricts.add(x)));
-
-      const nextDistricts = filters.districts.filter(
-        (dc) => !districtsInDiv.includes(dc) || otherDivDistricts.has(dc)
-      );
-
-      updateFilter('divisions', nextDivs);
-      updateFilter('districts', nextDistricts);
-    }
+    updateFilter('divisions', on ? [...new Set([...filters.divisions, divCode])] : filters.divisions.filter(code => code !== divCode));
+    updateFilter('districts', []);
+    setSelectedDistrict(null);
   };
 
   const filteredDistricts = filterOptions.districts.filter((d) =>
-    d.name.toLowerCase().includes(districtSearch.toLowerCase())
+    (!filters.divisions.length || filters.divisions.includes(d.divisionCode)) && d.name.toLowerCase().includes(districtSearch.toLowerCase())
   );
 
   const selectedDistrictCount = selectedDistrict ? 1 : filters.districts.length;
@@ -144,7 +109,7 @@ export default function FilterPanel({
 
   // ACCESS derived helpers
   const freeOption = useMemo(
-    () => matchOption(filterOptions.cost, ['free']),
+    () => filterOptions.cost.includes('Free') ? 'Free' : null,
     [filterOptions.cost]
   );
 
@@ -170,7 +135,7 @@ export default function FilterPanel({
     const cur = filters[key] as string[];
     const next = on ? [...new Set([...cur, value])] : cur.filter((v) => v !== value);
 
-    updateFilter(key, next as any);
+    updateFilter(key, next);
   };
 
   return (
@@ -200,6 +165,8 @@ export default function FilterPanel({
             onSelectFacility={(f) => {
               updateFilter('searchQuery', f.facility_name);
 
+              updateFilter('divisions', []);
+              updateFilter('districts', []);
               if (f.DIS_CODE) setSelectedDistrict(f.DIS_CODE);
             }}
           />
