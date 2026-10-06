@@ -1,10 +1,11 @@
+import { enrichDistricts } from '@/lib/dashboardData';
 import { useState, useEffect, useCallback } from 'react';
-import type { DistrictPop, Facility } from '@/types/dashboard';
+import type { DistrictPop, Facility, DistrictGeoJSON } from '@/types/dashboard';
 
 interface DashboardData {
   districts: DistrictPop[];
   facilities: Facility[];
-  geojson: any | null;
+  geojson: DistrictGeoJSON | null;
   loading: boolean;
   error: string | null;
   reload: () => void;
@@ -13,7 +14,7 @@ interface DashboardData {
 export function useDataLoader(): DashboardData {
   const [districts, setDistricts] = useState<DistrictPop[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [geojson, setGeojson] = useState<any | null>(null);
+  const [geojson, setGeojson] = useState<DistrictGeoJSON | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -43,30 +44,17 @@ export function useDataLoader(): DashboardData {
     };
 
     Promise.all([
-      fetchJson('/data/districts_pop.json'),
-      fetchJson('/data/facilities.json'),
-      fetchJson('/data/district.geojson'),
+      fetchJson(`${import.meta.env.BASE_URL}data/districts_pop.json`),
+      fetchJson(`${import.meta.env.BASE_URL}data/facilities.json`),
+      fetchJson(`${import.meta.env.BASE_URL}data/district.geojson`),
     ])
       .then(([d, f, g]) => {
         if (cancelled) return;
 
-        const enriched = (d as DistrictPop[]).map((row) => ({
-          ...row,
-          facilitiesPer100k:
-            row.Population > 0
-              ? (row.total_facilities / row.Population) * 100000
-              : 0,
-          populationPerFacility:
-            row.total_facilities > 0
-              ? row.Population / row.total_facilities
-              : 0,
-          householdsPerFacility:
-            row.total_facilities > 0
-              ? row.Total_households / row.total_facilities
-              : 0,
-        }));
-
-        console.log('Facilities loaded:', f.length, new Date().toISOString());
+        if (!Array.isArray(d) || !Array.isArray(f) || g?.type !== 'FeatureCollection' || !Array.isArray(g.features)) {
+          throw new Error('Invalid dashboard data format');
+        }
+        const enriched = enrichDistricts(d as DistrictPop[], f as Facility[]);
 
         setDistricts(enriched);
         setFacilities(f as Facility[]);
