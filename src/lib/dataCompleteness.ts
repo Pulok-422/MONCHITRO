@@ -1,3 +1,4 @@
+import { isKnownValue } from './dashboardData';
 import type { Facility } from '@/types/dashboard';
 
 const FIELDS: (keyof Facility)[] = [
@@ -18,8 +19,8 @@ export const COMPLETENESS_TOTAL = FIELDS.length;
 export function facilityCompleteness(f: Facility): number {
   let count = 0;
   for (const k of FIELDS) {
-    const v = (f as any)[k];
-    if (typeof v === 'string' && v.trim() !== '') count++;
+    const v = f[k];
+    if (isKnownValue(v)) count++;
   }
   return count;
 }
