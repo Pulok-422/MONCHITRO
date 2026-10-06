@@ -4,6 +4,7 @@ import { X, Filter } from 'lucide-react';
 interface Props {
   filters: Filters;
   selectedDistrict: string | null;
+  divisionNameLookup: Record<string, string>;
   districtNameLookup: Record<string, string>;
   updateFilter: <K extends keyof Filters>(key: K, value: Filters[K]) => void;
   setSelectedDistrict: (code: string | null) => void;
@@ -23,7 +24,8 @@ type ArrayFilterKey =
   | 'origin'
   | 'category'
   | 'appointmentRequired'
-  | 'cost';
+  | 'cost'
+  | 'services';
 
 const ARRAY_FILTERS: Array<{ key: ArrayFilterKey; prefix: string }> = [
   { key: 'facilityTypes', prefix: 'Type' },
@@ -32,18 +34,22 @@ const ARRAY_FILTERS: Array<{ key: ArrayFilterKey; prefix: string }> = [
   { key: 'category', prefix: 'Category' },
   { key: 'appointmentRequired', prefix: 'Appointment' },
   { key: 'cost', prefix: 'Cost' },
+  { key: 'services', prefix: 'Service' },
 ];
 
 export default function ActiveFilterChips({
   filters,
   selectedDistrict,
   districtNameLookup,
+  divisionNameLookup,
   updateFilter,
   setSelectedDistrict,
   resetFilters,
   resultCount,
 }: Props) {
   const chips: Chip[] = [];
+
+  filters.divisions.forEach(code => chips.push({ id: `division-${code}`, label: `Division: ${divisionNameLookup[code] || code}`, onRemove: () => updateFilter('divisions', filters.divisions.filter(value => value !== code)) }));
 
   if (selectedDistrict) {
     chips.push({
@@ -78,6 +84,21 @@ export default function ActiveFilterChips({
             values.filter((v) => v !== value) as Filters[typeof key]
           ),
       });
+    });
+  });
+
+  const ranges = [
+    { key: 'povertyRange' as const, label: 'Poverty', defaults: [0, 100] },
+    { key: 'literacyRange' as const, label: 'Literacy', defaults: [0, 100] },
+    { key: 'urbanRange' as const, label: 'Urban', defaults: [0, 100] },
+    { key: 'populationRange' as const, label: 'Population', defaults: [0, 50000000] },
+    { key: 'facilitiesRange' as const, label: 'Baseline facilities', defaults: [0, 200] },
+  ];
+  ranges.forEach(({ key, label, defaults }) => {
+    const range = filters[key];
+    if (range[0] !== defaults[0] || range[1] !== defaults[1]) chips.push({
+      id: key, label: `${label}: ${range[0]}–${range[1]}`,
+      onRemove: () => updateFilter(key, [defaults[0], defaults[1]]),
     });
   });
 
