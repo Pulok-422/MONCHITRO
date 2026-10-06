@@ -9,26 +9,11 @@ interface DistrictInfoCardProps {
 }
 
 function generateInsight(d: DistrictPop): string {
-  const coverage = d.facilitiesPer100k || 0;
-  const pop = d.Population || 0;
-  const poverty = d['Poverty Index'] || 0;
-
-  if (coverage < 0.1 && pop > 2000000) {
-    return `${d.DIS_NAME} has very low facility coverage (${coverage.toFixed(2)}/100K) despite a large population of ${(pop / 1e6).toFixed(1)}M, indicating a critically underserved area.`;
-  }
-  if (coverage < 0.2 && poverty > 30) {
-    return `${d.DIS_NAME} has low coverage (${coverage.toFixed(2)}/100K) combined with high poverty (${poverty.toFixed(1)}), suggesting compounded vulnerability.`;
-  }
-  if (coverage > 1) {
-    return `${d.DIS_NAME} has relatively good coverage (${coverage.toFixed(2)}/100K) and may serve as a model for neighboring districts.`;
-  }
-  if (poverty > 30) {
-    return `${d.DIS_NAME} has elevated poverty (${poverty.toFixed(1)}) which may limit access to existing facilities.`;
-  }
-  return `${d.DIS_NAME} has ${d.total_facilities} facilities serving ${(pop / 1e6).toFixed(1)}M people (${coverage.toFixed(2)} per 100K).`;
+  if (d.total_facilities === 0) return `${d.DIS_NAME} has no indexed facilities matching the current selection. This can reflect directory gaps or the active facility filters and does not confirm absence of services.`;
+  return `${d.DIS_NAME} has ${d.total_facilities} matching indexed facilities for ${(d.Population / 1e6).toFixed(1)}M residents (${(d.facilitiesPer100k || 0).toFixed(2)} per 100K). Directory density does not measure capacity or service quality.`;
 }
 
-const num = (v: any) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 export default function DistrictInfoCard({ district, facilities = [], onClose }: DistrictInfoCardProps) {
   const { avg, n } = avgCompleteness(facilities);
@@ -56,7 +41,7 @@ export default function DistrictInfoCard({ district, facilities = [], onClose }:
   const insight = generateInsight(district);
 
   return (
-    <div className="absolute bottom-3 left-3 z-[1000] w-64 max-w-[calc(100%-1.5rem)] bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-lg p-3 text-xs">
+    <div className="absolute bottom-3 left-3 z-[1000] w-64 max-w-[calc(100%-1.5rem)] max-h-[calc(100%-4rem)] overflow-y-auto bg-card/95 backdrop-blur-md border border-border rounded-xl shadow-lg p-3 text-xs">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-bold text-sm text-foreground truncate pr-2">{district.DIS_NAME}</h3>
         <button
