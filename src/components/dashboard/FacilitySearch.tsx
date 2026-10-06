@@ -1,3 +1,4 @@
+import { matchesFacilitySearch } from '@/lib/dashboardData';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -27,16 +28,13 @@ export default function FacilitySearch({
     if (!q) return [];
     const matches: Facility[] = [];
     for (const f of facilities) {
-      const name = (f.facility_name || '').toLowerCase();
-      const dist = (districtNameLookup[f.DIS_CODE] || '').toLowerCase();
-      const type = (f.facility_type || '').toLowerCase();
-      if (name.includes(q) || dist.includes(q) || type.includes(q)) {
+      if (matchesFacilitySearch(f, q)) {
         matches.push(f);
         if (matches.length >= 8) break;
       }
     }
     return matches;
-  }, [value, facilities, districtNameLookup]);
+  }, [value, facilities]);
 
   // Close on outside click
   useEffect(() => {
@@ -100,11 +98,14 @@ export default function FacilitySearch({
         className="h-9 pl-8 text-[12px] bg-card border border-border rounded-[10px]"
         aria-label="Search facility"
         aria-autocomplete="list"
+        aria-controls="facility-suggestions"
+        aria-activedescendant={showDropdown && activeIdx >= 0 ? `facility-suggestion-${activeIdx}` : undefined}
         aria-expanded={showDropdown}
         role="combobox"
       />
       {showDropdown && (
         <div
+          id="facility-suggestions"
           role="listbox"
           className="absolute left-0 right-0 top-full mt-1 z-50 bg-card border border-border rounded-[10px] shadow-lg overflow-hidden"
         >
@@ -120,6 +121,7 @@ export default function FacilitySearch({
                 return (
                   <li
                     key={`${f.facility_name}-${i}`}
+                    id={`facility-suggestion-${i}`}
                     role="option"
                     aria-selected={isActive}
                     onMouseEnter={() => setActiveIdx(i)}
