@@ -1,3 +1,8 @@
+import type { FeatureCollection, Geometry } from 'geojson';
+
+export interface DistrictBoundaryProperties { DIS_CODE: string; DIS_NAME: string; DIV_CODE: string; DIV_NAME: string; }
+export type DistrictGeoJSON = FeatureCollection<Geometry, DistrictBoundaryProperties>;
+
 export interface DistrictPop {
   DIV_NAME: string;
   DIV_CODE: string;
@@ -14,9 +19,9 @@ export interface DistrictPop {
   Average_household_size: number;
   Literacy_rate: number;
   "Poverty Index": number;
-  facilitiesPer100k?: number;
-  populationPerFacility?: number;
-  householdsPerFacility?: number;
+  facilitiesPer100k?: number | null;
+  populationPerFacility?: number | null;
+  householdsPerFacility?: number | null;
 }
 
 export interface Facility {
@@ -30,7 +35,7 @@ export interface Facility {
   mobile_contact_number?: string;
   service_days: string;
   visiting_hours: string;
-  cost: string;
+  cost?: string;
   category_adult_child_both: string;
   appointment_required: string;
   origin: string;
