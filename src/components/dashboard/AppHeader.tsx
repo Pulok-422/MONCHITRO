@@ -1,4 +1,4 @@
-import { useTransition } from 'react';
+import { useTransition, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Map,
@@ -38,6 +38,16 @@ export default function AppHeader({
   onToggleSidebar,
   showSidebarToggle = false,
 }: AppHeaderProps) {
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const element = headerRef.current;
+    if (!element) return;
+    const measure = () => document.documentElement.style.setProperty('--dashboard-header-height', `${element.getBoundingClientRect().height}px`);
+    const observer = new ResizeObserver(measure);
+    measure();
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const navigate = useNavigate();
   const location = useLocation();
   const [isPending, startTransition] = useTransition();
@@ -69,7 +79,7 @@ export default function AppHeader({
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/70 bg-card/85 backdrop-blur-xl supports-[backdrop-filter]:bg-card/75">
+    <header ref={headerRef} className="sticky top-0 z-50 border-b border-border/70 bg-card/85 backdrop-blur-xl supports-[backdrop-filter]:bg-card/75">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-[60] focus:rounded-lg focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow"
