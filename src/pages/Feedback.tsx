@@ -57,12 +57,18 @@ export default function Feedback() {
       source: 'MONCHITRO feedback route',
     };
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      await fetch(FEEDBACK_URL, {
+      const response = await fetch(FEEDBACK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      if (!response.ok) throw new Error('Feedback server rejected the request.');
+      const result = await response.json() as { success?: boolean; status?: string; result?: string };
+      if (result.success !== true && result.status !== 'success' && result.result !== 'success') throw new Error('Feedback server did not confirm that the response was recorded.');
 
       try {
         const raw = localStorage.getItem('monchitro_feedback_v1');
@@ -75,8 +81,9 @@ export default function Feedback() {
 
       setSubmitted(true);
     } catch {
-      setSubmitError('Could not send feedback. Please try again.');
+      setSubmitError('Feedback was not confirmed as recorded. Please try again; avoid including private information.');
     } finally {
+      clearTimeout(timeout);
       setSubmitting(false);
     }
   };
