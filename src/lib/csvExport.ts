@@ -1,13 +1,14 @@
-function escapeCsvField(value: any): string {
+function escapeCsvField(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  const raw = String(value);
+  const s = typeof value === 'string' && /^[\s]*[=+@-]/.test(raw) ? `'${raw}` : raw;
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
 }
 
-export function toCsv<T extends Record<string, any>>(
+export function toCsv<T extends object>(
   rows: T[],
   columns: { key: string; header?: string }[]
 ): string {
@@ -18,14 +19,14 @@ export function toCsv<T extends Record<string, any>>(
   return header + '\n' + body;
 }
 
-function getValue(obj: any, key: string): any {
-  if (key in obj) return obj[key];
+function getValue(obj: object, key: string): unknown {
+  if (key in obj) return (obj as Record<string, unknown>)[key];
   // allow bracket notation keys like 'Poverty Index'
-  return obj[key];
+  return (obj as Record<string, unknown>)[key];
 }
 
 export function downloadCsv(filename: string, csv: string) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
