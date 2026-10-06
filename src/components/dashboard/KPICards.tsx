@@ -1,3 +1,4 @@
+import { costCategory } from '@/lib/dashboardData';
 import { useMemo } from 'react';
 import type { DistrictPop, Facility } from '@/types/dashboard';
 import { Activity, MapPin, TrendingDown, BookOpen, Heart, Shield } from 'lucide-react';
@@ -22,7 +23,7 @@ export default function KPICards({ districts, facilities }: KPICardsProps) {
         ? districts.reduce((s, d) => s + d.Literacy_rate, 0) / districts.length
         : 0;
     const facPer100k = totalPop > 0 ? (totalFacilities / totalPop) * 100000 : 0;
-    const freeFac = facilities.filter((f) => f.cost?.toLowerCase() === 'free').length;
+    const freeFac = facilities.filter((f) => costCategory(f.cost) === 'Free').length;
 
     return [
       {
@@ -66,7 +67,7 @@ export default function KPICards({ districts, facilities }: KPICardsProps) {
 
   return (
     <div>
-      <div className="grid [grid-template-columns:repeat(auto-fit,minmax(250px,1fr))] gap-3">
+      <div className="grid [grid-template-columns:repeat(auto-fit,minmax(min(250px,100%),1fr))] gap-3">
         {kpis.map((kpi, i) => (
           <div
             key={i}
